@@ -1,0 +1,142 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  MANAGER
+  DISPATCHER
+  SAFETY_OFFICER
+  FINANCIAL_ANALYST
+}
+
+enum VehicleStatus {
+  AVAILABLE
+  ON_TRIP
+  IN_SHOP
+  OUT_OF_SERVICE
+}
+
+enum DriverStatus {
+  ON_DUTY
+  ON_TRIP
+  OFF_DUTY
+  SUSPENDED
+}
+
+enum TripStatus {
+  DRAFT
+  DISPATCHED
+  COMPLETED
+  CANCELLED
+}
+
+model User {
+  id           Int      @id @default(autoincrement())
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         UserRole
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Vehicle {
+  id               Int              @id @default(autoincrement())
+  name             String
+  model            String
+  type             String
+  region           String?
+  licensePlate     String           @unique
+  maxCapacityKg    Decimal          @db.Decimal(10, 2)
+  odometerKm       Decimal          @default(0) @db.Decimal(12, 2)
+  status           VehicleStatus    @default(AVAILABLE)
+  isRetired        Boolean          @default(false)
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  trips            Trip[]
+  maintenanceLogs  MaintenanceLog[]
+  fuelLogs         FuelLog[]
+}
+
+model Driver {
+  id                 Int           @id @default(autoincrement())
+  fullName           String
+  email              String?       @unique
+  phone              String?       @unique
+  licenseNumber      String        @unique
+  licenseExpiryDate  DateTime
+  licenseCategory    String?
+  status             DriverStatus  @default(ON_DUTY)
+  safetyScore        Decimal?      @db.Decimal(5, 2)
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  trips              Trip[]
+}
+
+model Trip {
+  id                Int         @id @default(autoincrement())
+  referenceCode     String      @unique
+  origin            String
+  destination       String
+  cargoWeightKg     Decimal     @db.Decimal(10, 2)
+  revenueAmount     Decimal?    @db.Decimal(12, 2)  // Added: expected/actual revenue
+  distanceKm        Decimal?    @db.Decimal(10, 2)  // Added: distance driven
+  status            TripStatus  @default(DRAFT)
+  departureAt       DateTime?
+  arrivalAt         DateTime?
+  completedAt       DateTime?
+  cancelledAt       DateTime?
+  notes             String?
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+
+  vehicleId         Int
+  driverId          Int
+
+  vehicle           Vehicle     @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
+  driver            Driver      @relation(fields: [driverId], references: [id], onDelete: Restrict)
+  fuelLogs          FuelLog[]   // Fixed: was missing, caused Prisma generate error
+
+  @@index([vehicleId])
+  @@index([driverId])
+  @@index([status])
+}
+
+model MaintenanceLog {
+  id             Int       @id @default(autoincrement())
+  vehicleId      Int
+  serviceType    String
+  description    String?
+  cost           Decimal?  @db.Decimal(10, 2)
+  serviceDate    DateTime  @default(now())
+  resolvedAt     DateTime? // null = In Progress, non-null = Completed
+  createdAt      DateTime  @default(now())
+
+  vehicle        Vehicle   @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  @@index([vehicleId, serviceDate])
+}
+
+model FuelLog {
+  id             Int       @id @default(autoincrement())
+  vehicleId      Int
+  tripId         Int?
+  liters         Decimal   @db.Decimal(10, 2)
+  pricePerLiter  Decimal   @db.Decimal(10, 2)
+  totalCost      Decimal   @db.Decimal(12, 2)
+  odometerDelta  Decimal?  @db.Decimal(10, 2)  // Added: km driven on this fill-up (for efficiency calc)
+  filledAt       DateTime  @default(now())
+  createdAt      DateTime  @default(now())
+
+  vehicle        Vehicle   @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  trip           Trip?     @relation(fields: [tripId], references: [id], onDelete: SetNull)
+
+  @@index([vehicleId, filledAt])
+}
